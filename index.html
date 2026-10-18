@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini Fresco</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:#1e1e1e;color:#e0e0e0;height:100vh;overflow:hidden}
+        .app{display:flex;flex-direction:column;height:100vh}.toolbar{background:#252525;border-bottom:1px solid #3a3a3a;padding:10px;display:flex;gap:15px;align-items:center;flex-wrap:wrap}
+        .toolbar label{display:flex;align-items:center;gap:6px;font-size:11px;text-transform:uppercase}.toolbar input[type="range"]{width:80px}.toolbar input[type="color"]{width:35px;height:30px;border:none;border-radius:3px}
+        .toolbar input[type="text"]{background:#353535;border:1px solid #3a3a3a;color:#e0e0e0;padding:4px 6px;border-radius:3px;font-size:10px;width:60px;font-family:monospace}
+        .toolbar button{background:#353535;border:1px solid #3a3a3a;color:#e0e0e0;padding:6px 12px;border-radius:3px;cursor:pointer;font-size:10px;text-transform:uppercase;transition:all 0.1s}
+        .toolbar button:hover:not(:disabled){background:#4a7eff;border-color:#6a9eff}.toolbar button:disabled{opacity:0.4;cursor:not-allowed}
+        .content{display:flex;flex:1;gap:0}.sidebar{background:#2a2a2a;border-right:1px solid #3a3a3a;width:70px;padding:10px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+        .tool-btn{width:50px;height:50px;background:#353535;border:2px solid transparent;border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.1s;color:#e0e0e0}
+        .tool-btn:hover{background:#404040}.tool-btn.active{background:#4a7eff;border-color:#6a9eff}
+        .canvas-area{flex:1;background:#2a2a2a;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+        .canvas-wrapper{position:relative;touch-action:none}canvas{position:absolute;top:0;left:0;display:block;background:white}
+        .layers-panel{background:#2a2a2a;border-left:1px solid #3a3a3a;width:200px;display:flex;flex-direction:column;overflow:hidden}
+        .layers-header{padding:10px;border-bottom:1px solid #3a3a3a;font-size:11px;text-transform:uppercase;font-weight:600}
+        .layers-list{flex:1;overflow-y:auto;padding:8px}
+        .layer-item{background:#353535;border:2px solid transparent;border-radius:3px;padding:6px;margin-bottom:4px;cursor:pointer;font-size:10px;transition:all 0.1s;display:flex;align-items:center;gap:6px}
+        .layer-item:hover{background:#404040}.layer-item.active{background:#4a7eff;border-color:#6a9eff}
+        .layer-vis{background:none;border:none;cursor:pointer;color:inherit;width:16px;height:16px;padding:0;font-size:12px}
+        .layer-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px}
+        .layer-name-edit{background:#2a2a2a;border:1px solid #4a7eff;color:#e0e0e0;padding:2px 4px;border-radius:2px;font-size:10px;font-family:inherit}
+        .layer-controls{padding:8px;border-top:1px solid #3a3a3a;display:flex;gap:4px}
+        .layer-controls button{flex:1;height:26px;font-size:9px}
+        .status{background:#252525;border-top:1px solid #3a3a3a;padding:6px 10px;font-size:10px;color:#888}
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="toolbar">
+            <div><button id="undoBtn">↶ Undo</button><button id="redoBtn">↷ Redo</button></div>
+            <div><label>Size<input type="range" id="brushSize" min="1" max="100" value="8"></label><span id="sizeDisplay">8px</span></div>
+            <div><label>Opacity<input type="range" id="opacity" min="1" max="100" value="100"></label><span id="opacityDisplay">100%</span></div>
+            <div><label>Color<input type="color" id="colorPicker" value="#000000"><input type="text" id="hexInput" value="#000000" maxlength="7"></label></div>
+            <div><button id="zoomIn">+</button><button id="zoomOut">−</button><button id="zoomFit">Fit</button><span id="zoomDisplay">100%</span></div>
+            <div><button id="exportBtn">⬇ Export</button><button id="clearBtn">🗑 Clear</button></div>
+        </div>
+        <div class="content">
+            <div class="sidebar" id="sidebar">
+                <button class="tool-btn active" data-tool="brush" title="Brush">✏️</button>
+                <button class="tool-btn" data-tool="watercolor" title="Watercolor">💧</button>
+                <button class="tool-btn" data-tool="smooth" title="Smooth">〰️</button>
+                <button class="tool-btn" data-tool="eraser" title="Eraser">⌫</button>
+                <button class="tool-btn" data-tool="eyedropper" title="Eyedropper">🎯</button>
+                <button class="tool-btn" data-tool="bucket" title="Bucket">🪣</button>
+                <button class="tool-btn" data-tool="hand" title="Hand">✋</button>
+            </div>
+            <div class="canvas-area" id="canvasArea">
+                <div class="canvas-wrapper" id="canvasWrapper"></div>
+            </div>
+            <div class="layers-panel">
+                <div class="layers-header">Layers</div>
+                <div class="layers-list" id="layersList"></div>
+                <div class="layer-controls">
+                    <button id="addLayerBtn">+ Add</button>
+                    <button id="delLayerBtn">- Del</button>
+                </div>
+            </div>
+        </div>
+        <div class="status" id="status">Ready</div>
+    </div>
+
+    <script>
+        const DOC_W=1200, DOC_H=800, MAX_HIST=20;
+        let tool='brush', color='#000000', size=8, opacity=100, zoom=1, panX=0, panY=0;
+        let isDrawing=false, lastX=0, lastY=0, lastQX=0, lastQY=0;
+        let layers=[], activeLayerIdx=0, history=[], historyIdx=-1;
+        let canvasWrapper=document.getElementById('canvasWrapper'), canvasArea=document.getElementById('canvasArea');
+
+        function createLayer(name='Layer'){
+            const c=document.createElement('canvas');
+            c.width=DOC_W;c.height=DOC_H;
+            return {name, canvas:c, visible:true, opacity:100};
+        }
+
+        function initDocument(){
+            layers=[createLayer('Layer 1'),createLayer('Layer 2')];
+            activeLayerIdx=0;
+            canvasWrapper.innerHTML='';
+            layers.forEach(l=>canvasWrapper.appendChild(l.canvas));
+            updateLayersList();
+            saveHistory();
+            render();
+        }
+
+        function getCanvasPos(e){
+            const rect=canvasWrapper.getBoundingClientRect();
+            return {x:(e.clientX-rect.left-panX)/zoom, y:(e.clientY-rect.top-panY)/zoom};
+        }
+
+        function startStroke(e){
+            if(tool==='hand'){
+                isDrawing=true;
+                lastX=e.clientX;
+                lastY=e.clientY;
+                canvasWrapper.style.cursor='grabbing';
+                return;
+            }
+            if(tool==='eyedropper'){
+                sampleColor(getCanvasPos(e));
+                return;
+            }
+            if(tool==='bucket'){
+                floodFill(getCanvasPos(e));
+                return;
+            }
+            isDrawing=true;
+            const pos=getCanvasPos(e);
+            lastX=lastQX=pos.x;
+            lastY=lastQY=pos.y;
+            saveHistory();
+        }
+
+        function drawStroke(e){
+            if(!isDrawing) return;
+            const pos=getCanvasPos(e);
+            
+            if(tool==='hand'){
+                panX+=(e.clientX-lastX);
+                panY+=(e.clientY-lastY);
+                lastX=e.clientX;
+                lastY=e.clientY;
+                render();
+                return;
+            }
+
+            const ctx=layers[activeLayerIdx].canvas.getContext('2d');
+            const s=size, op=opacity/100;
+            
+            ctx.globalAlpha=op;
+            ctx.lineCap='round';
+            ctx.lineJoin='round';
+            ctx.lineWidth=s;
+
+            if(tool==='eraser'){
+                ctx.globalCompositeOperation='destination-out';
+                ctx.strokeStyle='rgba(0,0,0,1)';
+            }else if(tool==='watercolor'){
+                ctx.globalCompositeOperation='source-over';
+                ctx.filter='blur(3px)';
+                ctx.globalAlpha=op*0.2;
+                ctx.strokeStyle=color;
+            }else if(tool==='smooth'){
+                ctx.globalCompositeOperation='source-over';
+                ctx.filter='none';
+                ctx.strokeStyle=color;
+                ctx.beginPath();
+                ctx.moveTo(lastQX, lastQY);
+                ctx.quadraticCurveTo(lastX, lastY, (lastX+pos.x)/2, (lastY+pos.y)/2);
+                ctx.stroke();
+                lastQX=lastX;lastQY=lastY;
+                lastX=pos.x;lastY=pos.y;
+                render();
+                return;
+            }else{
+                ctx.globalCompositeOperation='source-over';
+                ctx.filter='none';
+                ctx.strokeStyle=color;
+            }
+
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+            lastX=pos.x;
+            lastY=pos.y;
+            render();
+        }
+
+        function endStroke(){
+            isDrawing=false;
+            if(tool!=='hand') {
+                const ctx=layers[activeLayerIdx].canvas.getContext('2d');
+                ctx.globalCompositeOperation='source-over';
+                ctx.globalAlpha=1;
+                ctx.filter='none';
+            }
+            canvasWrapper.style.cursor='crosshair';
+            render();
+        }
+
+        function sampleColor(pos){
+            const mergedCanvas=document.createElement('canvas');
+            mergedCanvas.width=DOC_W;mergedCanvas.height=DOC_H;
+            const mctx=mergedCanvas.getContext('2d');
+            layers.forEach((l,i)=>{
+                mctx.globalAlpha=l.visible?l.opacity/100:0;
+                mctx.drawImage(l.canvas,0,0);
+            });
+            const id=mctx.getImageData(Math.floor(pos.x),Math.floor(pos.y),1,1);
+            const hex='#'+[id.data[0],id.data[1],id.data[2]].map(x=>x.toString(16).padStart(2,'0')).join('').toUpperCase();
+            document.getElementById('colorPicker').value=hex;
+            document.getElementById('hexInput').value=hex;
+            color=hex;
+        }
+
+        function floodFill(pos){
+            const ctx=layers[activeLayerIdx].canvas.getContext('2d');
+            const id=ctx.getImageData(0,0,DOC_W,DOC_H);
+            const data=id.data;
+            const x=Math.floor(pos.x), y=Math.floor(pos.y);
+            if(x<0||x>=DOC_W||y<0||y>=DOC_H) return;
+            
+            const targetIdx=(y*DOC_W+x)*4;
+            const tr=data[targetIdx], tg=data[targetIdx+1], tb=data[targetIdx+2], ta=data[targetIdx+3];
+            const fillHex=color;
+            const fr=parseInt(fillHex.slice(1,3),16), fg=parseInt(fillHex.slice(3,5),16), fb=parseInt(fillHex.slice(5,7),16);
+            
+            saveHistory();
+            const q=[[x,y]];
+            const visited=new Set();
+            while(q.length){
+                const [cx,cy]=q.shift();
+                if(cx<0||cx>=DOC_W||cy<0||cy>=DOC_H) continue;
+                const key=cx+','+cy;
+                if(visited.has(key)) continue;
+                visited.add(key);
+                const idx=(cy*DOC_W+cx)*4;
+                if(data[idx]===tr&&data[idx+1]===tg&&data[idx+2]===tb&&data[idx+3]===ta){
+                    data[idx]=fr;data[idx+1]=fg;data[idx+2]=fb;data[idx+3]=255;
+                    q.push([cx+1,cy],[cx-1,cy],[cx,cy+1],[cx,cy-1]);
+                }
+            }
+            ctx.putImageData(id,0,0);
+            render();
+        }
+
+        function saveHistory(){
+            historyIdx++;
+            if(historyIdx<history.length) history.length=historyIdx;
+            history.push(layers.map(l=>{const c=document.createElement('canvas');c.width=l.canvas.width;c.height=l.canvas.height;c.getContext('2d').drawImage(l.canvas,0,0);return {name:l.name,canvas:c,visible:l.visible,opacity:l.opacity};}));
+            if(history.length>MAX_HIST) history.shift(), historyIdx--;
+            updateUndoRedoButtons();
+        }
+
+        function undo(){
+            if(historyIdx>0){
+                historyIdx--;
+                restoreHistory();
+            }
+        }
+
+        function redo(){
+            if(historyIdx<history.length-1){
+                historyIdx++;
+                restoreHistory();
+            }
+        }
+
+        function restoreHistory(){
+            const h=history[historyIdx];
+            layers=h.map(l=>{const c=document.createElement('canvas');c.width=l.canvas.width;c.height=l.canvas.height;c.getContext('2d').drawImage(l.canvas,0,0);return {name:l.name,canvas:c,visible:l.visible,opacity:l.opacity};});
+            if(activeLayerIdx>=layers.length
